@@ -12,8 +12,13 @@ loop = None
 connected = False
 mqtt_client = None
 
-# LED kleuren voor Hub (port 50)
+# LED kleuren (0-10 palette)
 LED_COLORS = [0x00, 0x03, 0x05, 0x06, 0x07, 0x09, 0x0A]  # off, blue, cyan, green, yellow, red, purple
+
+# Duplo Train ports
+PORT_LED = 0x11    # LED port op Duplo Train Hub (port 17)
+PORT_MOTOR = 0x00  # Motor port
+PORT_SPEAKER = 0x01  # Speaker port
 
 async def send_speed(speed):
     global client_ble, current_speed, connected
@@ -42,9 +47,13 @@ async def set_led_color(color_index):
         return False
     try:
         color = LED_COLORS[color_index % len(LED_COLORS)]
-        # LED op port 50 (0x32) - RGB LED commando
-        cmd = bytes([0x08, 0x00, 0x81, 0x32, 0x11, 0x51, 0x00, color])
-        await client_ble.write_gatt_char(CHAR_UUID, cmd)
+        # Eerst mode instellen voor LED (port 0x11 = 17)
+        mode_cmd = bytes([0x0a, 0x00, 0x41, PORT_LED, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00])
+        await client_ble.write_gatt_char(CHAR_UUID, mode_cmd)
+        await asyncio.sleep(0.05)
+        # Dan kleur instellen
+        color_cmd = bytes([0x08, 0x00, 0x81, PORT_LED, 0x11, 0x51, 0x00, color])
+        await client_ble.write_gatt_char(CHAR_UUID, color_cmd)
         current_color = color_index
         print(f"LED kleur: {color_index} (0x{color:02x})")
         return True
@@ -52,25 +61,21 @@ async def set_led_color(color_index):
         print(f"Fout LED: {e}")
         return False
 
-async def play_sound():
+async def play_sound(sound=0x09):
     global client_ble, connected
     if not connected or not client_ble:
         print("Niet verbonden")
         return False
     try:
-        # Train hub heeft geen speaker - flash LED als alternatief
-        for _ in range(3):
-            cmd = bytes([0x08, 0x00, 0x81, 0x32, 0x11, 0x51, 0x00, 0x09])  # Rood
-            await client_ble.write_gatt_char(CHAR_UUID, cmd)
-            await asyncio.sleep(0.15)
-            cmd = bytes([0x08, 0x00, 0x81, 0x32, 0x11, 0x51, 0x00, 0x00])  # Uit
-            await client_ble.write_gatt_char(CHAR_UUID, cmd)
-            await asyncio.sleep(0.15)
-        # Zet terug naar huidige kleur
-        color = LED_COLORS[current_color % len(LED_COLORS)]
-        cmd = bytes([0x08, 0x00, 0x81, 0x32, 0x11, 0x51, 0x00, color])
-        await client_ble.write_gatt_char(CHAR_UUID, cmd)
-        print("Toeter! (LED flash)")
+        # Duplo Train heeft speaker op port 0x01
+        # Eerst mode instellen voor sound
+        mode_cmd = bytes([0x0a, 0x00, 0x41, PORT_SPEAKER, 0x01, 0x01, 0x00, 0x00, 0x00, 0x01])
+        await client_ble.write_gatt_char(CHAR_UUID, mode_cmd)
+        await asyncio.sleep(0.05)
+        # Dan geluid afspelen (0x09 = horn/toeter)
+        sound_cmd = bytes([0x08, 0x00, 0x81, PORT_SPEAKER, 0x11, 0x51, 0x01, sound])
+        await client_ble.write_gatt_char(CHAR_UUID, sound_cmd)
+        print(f"Geluid: {sound}")
         return True
     except Exception as e:
         print(f"Fout geluid: {e}")
